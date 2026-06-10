@@ -12,13 +12,11 @@
 <body class="bg-gray-50 text-gray-900 min-h-screen pb-12">
     <div class="max-w-md mx-auto p-4 space-y-4">
         
-        <!-- כותרת ראשית של הפלטפורמה -->
         <header class="bg-blue-600 text-white p-4 rounded-2xl shadow-md text-center">
             <h1 class="text-xl font-bold">ניהול תרומות ואיסוף נתונים</h1>
             <p class="text-xs opacity-80 mt-1">מותאם לעבודה מהירה תוך כדי תנועה</p>
         </header>
 
-        <!-- כרטיסי סיכום וסטטיסטיקה - לחיצה מסננת ומציגה סיכום ספציפי -->
         <div class="grid grid-cols-2 gap-2" id="summary-dashboard">
             <div class="bg-white p-3 rounded-xl shadow-xs border border-gray-100 text-center col-span-2">
                 <p class="text-xs text-gray-500 font-medium">סך הכל נכנס כללי</p>
@@ -41,7 +39,6 @@
                 <p class="text-lg font-bold" id="stat-other">$0</p>
             </div>
         </div>
-        <!-- תפריט הגדרות מפתח מנוע ה-AI עבור הזיהוי האוטומטי -->
         <div class="bg-gray-100 p-3 rounded-xl space-y-2">
             <details class="text-xs text-gray-600">
                 <summary class="font-bold cursor-pointer select-none">הגדרות מפתח מנוע ה-AI (לחץ לפתיחה)</summary>
@@ -52,7 +49,6 @@
             </details>
         </div>
 
-        <!-- אזור הקלט המהיר מבוסס בינה מלאכותית -->
         <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
             <h2 class="text-sm font-bold text-gray-800 flex items-center gap-1">
                 <span>✨ קליטה מהירה חכמה מהשטח</span>
@@ -63,7 +59,6 @@
                 <span id="btn-ai-text">נתח נתונים אוטומטית באמצעות ה-AI 🚀</span>
             </button>
         </div>
-        <!-- טופס הצגת הנתונים, אימות ועריכה ידנית סופית לפני שמירה -->
         <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 space-y-3">
             <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">פרטי התורם הנוכחי (לאחר ניתוח או הזנה עצמאית)</h3>
             <div class="grid grid-cols-2 gap-2 text-sm">
@@ -97,7 +92,6 @@
                 💾 שמירת התרומה ועדכון המאזן הפיננסי
             </button>
         </div>
-        <!-- רשימת התרומות האחרונות שנקלטו כולל פונקציית סינון -->
         <div class="space-y-2">
             <div class="flex justify-between items-center px-1">
                 <h3 class="text-sm font-bold text-gray-700" id="list-title">כל התרומות שנרשמו</h3>
@@ -107,8 +101,7 @@
             </div>
             
             <div id="donors-container" class="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-                <!-- כרטיסי תורמים מעוצבים ייווצרו פה באופן דינמי -->
-            </div>
+                </div>
             
             <button onclick="exportData()" class="w-full border border-gray-300 text-gray-600 text-xs py-2.5 rounded-xl mt-4 active:bg-gray-100 transition-colors font-medium">
                 📤 ייצוא כל רשימת התרומות לקובץ גיבוי חיצוני (JSON)
@@ -271,7 +264,6 @@
             Input sentence: "${rawText}"`;
 
             try {
-                // עודכן לדגם gemini-2.5-flash הנתמך והיציב
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -294,17 +286,35 @@
                 
                 const parsed = JSON.parse(resText);
                 
-                document.getElementById('donor-name').value = parsed.name || '';
-                document.getElementById('donor-phone').value = parsed.phone || '';
-                document.getElementById('donor-email').value = parsed.email || '';
-                document.getElementById('donor-amount').value = parsed.amount || '';
-                document.getElementById('donor-method').value = parsed.method || 'מזומן';
-                editingIndex = null;
+                // הוספה אוטומטית ישירה למערך התרומות עבור הזנה מהירה וחלקה
+                const newDonation = {
+                    name: parsed.name || 'תורם ללא שם',
+                    phone: parsed.phone || '',
+                    email: parsed.email || '',
+                    amount: parsed.amount || 0,
+                    method: parsed.method || 'מזומן',
+                    date: new Date().toISOString()
+                };
+                
+                if (!newDonation.amount) {
+                    throw new Error("ה-AI לא הצליח לזהות סכום תרומה ברור במשפט. אנא נסה לנסח שוב בצורה ברורה.");
+                }
+
+                // דחיפת האיבר החדש לראש המערך ושמירה ב-LocalStorage
+                donors.unshift(newDonation);
+                localStorage.setItem('donors_platform_data', JSON.stringify(donors));
+                
+                // איפוס שדה הטקסט החופשי
+                document.getElementById('ai-raw-input').value = '';
+                
+                // עדכון לוח הבקרה וריענון הרשימה על המסך בזמן אמת
+                updateDashboard();
+                clearFilter();
                 
             } catch (e) {
                 alert(`פרטי השגיאה המדויקים מצד השרת:\n${e.message}\n\nאנא וודא שהעתקת את מפתח ה-API ללא רווחים מיותרים משני הצדדים.`);
                 console.error(e);
-            } finally {
+            } finaly {
                 btnText.innerText = 'נתח נתונים אוטומטית באמצעות ה-AI 🚀';
             }
         }
