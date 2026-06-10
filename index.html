@@ -160,7 +160,6 @@
             }
 
             filtered.forEach((d, idx) => {
-                // מציאת האינדקס המקורי במערך הכללי לטובת עריכה ומחיקה נכונה גם בזמן סינון
                 const originalIdx = donors.indexOf(d);
                 const card = document.createElement('div');
                 card.className = "bg-white p-3 rounded-xl shadow-xs border border-gray-100 flex justify-between items-center";
@@ -186,7 +185,6 @@
             });
         }
 
-        // פונקציות סינון בלחיצה על כפתורי לוח הבקרה
         function filterByMethod(method) {
             currentFilter = method;
             document.getElementById('list-title').innerText = `תרומות שהתקבלו ב: ${method}`;
@@ -201,7 +199,6 @@
             renderDonors();
         }
 
-        // טעינת פרטי תורם קיים חזרה לטופס לצורך עריכה ועדכון
         function editDonor(idx) {
             const d = donors[idx];
             document.getElementById('donor-name').value = d.name || '';
@@ -214,7 +211,6 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        // שמירת רשומת התורם בסטייט ובזיכרון המכשיר (תומך גם בעדכון רשומה קיימת)
         function saveDonor() {
             const name = document.getElementById('donor-name').value;
             const phone = document.getElementById('donor-phone').value;
@@ -225,17 +221,14 @@
             if (!amount) { alert('אנא הזן או וודא שקיים סכום תרומה לפני השמירה'); return; }
 
             if (editingIndex !== null) {
-                // עדכון רשומה קיימת שנערכה
                 donors[editingIndex] = { name, phone, email, amount, method, date: donors[editingIndex].date || new Date().toISOString() };
                 editingIndex = null;
             } else {
-                // הוספת רשומה חדשה לחלוטין לראש הרשימה
                 donors.unshift({ name, phone, email, amount, method, date: new Date().toISOString() });
             }
             
             localStorage.setItem('donors_platform_data', JSON.stringify(donors));
             
-            // ניקוי שדות קלט לאחר הצלחת השמירה
             document.getElementById('donor-name').value = '';
             document.getElementById('donor-phone').value = '';
             document.getElementById('donor-email').value = '';
@@ -246,7 +239,6 @@
             clearFilter();
         }
 
-        // מחיקת רשומה מהרשימה
         function deleteDonor(idx) {
             if(confirm('האם אתה בטוח שברצונך למחוק תרומה זו מהמערכת?')) {
                 if (editingIndex === idx) editingIndex = null;
@@ -257,7 +249,6 @@
             }
         }
 
-        // פנייה ישירה ומאובטחת ל-Gemini API לצורך ניתוח חכם של הטקסט החופשי
         async function processWithAI() {
             const rawText = document.getElementById('ai-raw-input').value;
             const apiKey = localStorage.getItem('gemini_platform_api_key');
@@ -286,9 +277,18 @@
                     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
                 });
                 
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(`תגובת גוגל: ${errData.error?.message || response.statusText}`);
+                }
+
                 const data = await response.json();
-                let resText = data.candidates[0].content.parts[0].text.trim();
                 
+                if (!data.candidates || data.candidates.length === 0) {
+                    throw new Error("גוגל לא החזירה תוצאות מנותחות. וודא שהחשבון שלך תקין.");
+                }
+
+                let resText = data.candidates[0].content.parts[0].text.trim();
                 resText = resText.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
                 
                 const parsed = JSON.parse(resText);
@@ -301,14 +301,13 @@
                 editingIndex = null;
                 
             } catch (e) {
-                alert('התרחש כשל בניתוח הטקסט על ידי ה-AI. אנא וודא שמפתח ה-API תקין ורשת האינטרנט פעילה.');
+                alert(`פרטי השגיאה המדויקים מצד השרת:\n${e.message}\n\nאנא וודא שהעתקת את מפתח ה-API ללא רווחים מיותרים משני הצדדים.`);
                 console.error(e);
             } finally {
                 btnText.innerText = 'נתח נתונים אוטומטית באמצעות ה-AI 🚀';
             }
         }
 
-        // פונקציית ייצוא נתונים המאפשרת להוריד קובץ גיבוי מלא בכל שלב
         function exportData() {
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(donors, null, 2));
             const downloadAnchor = document.createElement('a');
@@ -319,7 +318,6 @@
             downloadAnchor.remove();
         }
 
-        // טעינה ורינדור ראשוניים של המערכת בהפעלת הדף
         updateDashboard();
         renderDonors();
     </script>
