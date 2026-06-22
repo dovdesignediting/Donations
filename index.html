@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<title>מערכת ניהול תרומות | דוב עיצוב ופיתוח</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+--bg:#0D1117;--surface:#161B22;--surface2:#1C2128;--border:#30363D;
+--accent:#00D68F;--accent2:#00A36C;--accent-glow:rgba(0,214,143,0.18);
+--text:#E6EDF3;--text2:#8B949E;--danger:#F85149;
+--radius:14px;--radius-sm:8px;
+--font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+--safe-bottom:env(safe-area-inset-bottom,0px)
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow-x:hidden}
+body{-webkit-tap-highlight-color:transparent}
+#root{min-height:100dvh;display:flex;flex-direction:column}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+input,textarea,select,button{font-family:var(--font)}
+button{cursor:pointer;border:none;outline:none}
+input,textarea{outline:none;border:none}
+@keyframes pulse-glow{0%,100%{box-shadow:0 0 0 0 var(--accent-glow)}50%{box-shadow:0 0 0 6px rgba(0,214,143,0.04),0 0 24px 6px var(--accent-glow)}}
+@keyframes slide-up{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+@keyframes number-pop{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
+.slide-up{animation:slide-up 0.25s ease both}
+.fade-in{animation:fade-in 0.2s ease both}
+@media print{
+body{background:#fff!important;color:#000!important;font-family:Arial,sans-serif!important}
+#root{display:none!important}
+#print-area{display:block!important}
+#print-area *{color:#000!important;background:transparent!important;border-color:#ccc!important}
+.ph{text-align:center;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:20px}
+.ph h1{font-size:22px;font-weight:800}
+.ph p{font-size:12px;margin-top:4px}
+.ps{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.pb{border:1px solid #ccc;border-radius:8px;padding:10px 16px;flex:1;min-width:100px}
+.pb .lb{font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.pb .vl{font-size:20px;font-weight:800;font-family:monospace}
+.pt{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #ccc;padding-bottom:6px;margin:18px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#f0f0f0!important;padding:7px 8px;text-align:right;font-weight:700;border:1px solid #ccc}
+td{padding:6px 8px;border:1px solid #ddd;vertical-align:top}
+.pf{margin-top:24px;text-align:center;font-size:10px;border-top:1px solid #ccc;padding-top:10px}
+@page{margin:15mm;size:A4 portrait}
+}
+#print-area{display:none}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="print-area"></div>
+<script>
+const {useState,useEffect,useRef,useCallback,useMemo,createElement:h} = React;
+
+const PM = [
+  {id:'cash',   label:'מזומן', labelEn:'Cash',    emoji:'💵',color:'#F0B429',bg:'rgba(240,180,41,0.12)'},
+  {id:'zelle',  label:'זאל',   labelEn:'Zelle',   emoji:'⚡',color:'#A855F7',bg:'rgba(168,85,247,0.12)'},
+  {id:'cashapp',label:'קאש אפ',labelEn:'Cash App',emoji:'💸',color:'#00C853',bg:'rgba(0,200,83,0.12)'},
+  {id:'venmo',  label:'וונמו', labelEn:'Venmo',   emoji:'🔵',color:'#3D95CE',bg:'rgba(61,149,206,0.12)'},
+  {id:'check',  label:"צ'ק",  labelEn:'Check',   emoji:'🧾',color:'#F97316',bg:'rgba(249,115,22,0.12)'},
+  {id:'other',  label:'אחר',   labelEn:'Other',   emoji:'💳',color:'#8B949E',bg:'rgba(139,148,158,0.12)'}
+];
+const PM_MAP = {};
+PM.forEach(p => PM_MAP[p.id] = p);
+function getPM(id){return PM_MAP[id]||PM_MAP['other']}
+
+const STORAGE_KEY  = 'dov_donations_v3';
+const USERNAME_KEY = 'dov_username_v1';
+function loadDonations(){try{const d=localStorage.getItem(STORAGE_KEY);return d?JSON.parse(d):[]}catch{return[]}}
+function saveDonations(l){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(l))}catch{}}
+function loadUsername(){try{return localStorage.getItem(USERNAME_KEY)||''}catch{return''}}
+function saveUsername(n){try{localStorage.setItem(USERNAME_KEY,n)}catch{}}
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function fmt(n){if(!n&&n!==0)return'$0';return'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2})}
+function fmtDate(iso){const d=new Date(iso);return d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
+function isToday(iso){const d=new Date(iso),n=new Date();return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate()}
+function isThisWeek(iso){const d=new Date(iso),n=new Date(),diff=n-d;return diff>=0&&diff<=7*24*60*60*1000}
+function isThisMonth(iso){const d=new Date(iso),n=new Date();return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()}
+
+function smartParse(text){
+  if(!text||!text.trim())return null;
+  const raw=text.trim();
+  const phoneRx=/(\+?972[-.\s]?|0)(\d{1,2})[-.\s]?(\d{3,4})[-.\s]?(\d{3,4})/g;
+  const usRx=/(\+?1[-.\s]?)?(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g;
+  let phone='',m=phoneRx.exec(raw);
+  if(m)phone=m[0].replace(/\s/g,'');
+  else{m=usRx.exec(raw);if(m)phone=m[0].replace(/\s/g,'')}
+  const emailM=raw.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+  const email=emailM?emailM[0]:'';
+  const amRx=/[\$₪]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*[\$₪]?/g;
+  let amount=0,amountStr='',cands=[],am;
+  while((am=amRx.exec(raw))!==null){const v=parseFloat(am[1].replace(/,/g,''));if(v>0&&v<1000000)cands.push({val:v,str:am[1],index:am.index})}
+  const kwM=raw.match(/תרם|נתן|שילם|paid|donated?|amount|סכום|תרומה/i);
+  if(kwM&&cands.length>0){const af=cands.filter(c=>c.index>kwM.index);if(af.length>0){amount=af[0].val;amountStr=af[0].str}else{amount=cands[0].val;amountStr=cands[0].str}}
+  else if(cands.length>0){const s=[...cands].sort((a,b)=>{const sa=(a.val>=10&&a.val<=50000)?1:0,sb=(b.val>=10&&b.val<=50000)?1:0;return sb-sa||b.val-a.val});amount=s[0].val;amountStr=s[0].str}
+  const pmp={cash:/מזומן|cash|כסף מזומן|מזומ/i,zelle:/זאל|zelle|זל/i,cashapp:/קאש\s*אפ|cash\s*app|cashapp/i,venmo:/וונמו|venmo/i,check:/צ['׳]?ק|check|cheque/i};
+  let paymentMethod='cash';
+  for(const[id,rx]of Object.entries(pmp)){if(rx.test(raw)){paymentMethod=id;break}}
+  let cleaned=raw;
+  if(email)cleaned=cleaned.replace(email,'');
+  cleaned=cleaned.replace(phoneRx,'').replace(usRx,'');
+  if(amountStr)cleaned=cleaned.replace(new RegExp('[\\$₪]?\\s*'+amountStr.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*[\\$₪]?'),'');
+  cleaned=cleaned.replace(/מזומן|זאל|זל|קאש\s*אפ|cash\s*app|cashapp|וונמו|venmo|צ['׳]?ק|check|cheque|cash|zelle/gi,'');
+  cleaned=cleaned.replace(/תרם|נתן|שילם|paid|donated?|amount|סכום|תרומה/gi,'');
+  cleaned=cleaned.replace(/[^\u0590-\u05FF\uFB1D-\uFB4Fa-zA-Z\s'-]/g,' ');
+  const np=cleaned.trim().split(/\s+/).filter(w=>w.length>1);
+  return{name:np.slice(0,3).join(' ').trim(),phone,email,amount,paymentMethod,note:''}
+}
+</script>
+<script>
+// ── SVG ICONS ──
+function SvgPlus(){return h('svg',{width:22,height:22,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2.5',strokeLinecap:'round'},h('line',{x1:12,y1:5,x2:12,y2:19}),h('line',{x1:5,y1:12,x2:19,y2:12}))}
+function SvgTrash(){return h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round',strokeLinejoin:'round'},h('polyline',{points:'3 6 5 6 21 6'}),h('path',{d:'M19 6l-1 14H6L5 6'}),h('path',{d:'M10 11v6M14 11v6'}),h('path',{d:'M9 6V4h6v2'}))}
+function SvgEdit(){return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('path',{d:'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'}),h('path',{d:'M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'}))}
+function SvgClose(){return h('svg',{width:22,height:22,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2.5',strokeLinecap:'round'},h('line',{x1:18,y1:6,x2:6,y2:18}),h('line',{x1:6,y1:6,x2:18,y2:18}))}
+function SvgSearch(){return h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('circle',{cx:11,cy:11,r:8}),h('line',{x1:21,y1:21,x2:16.65,y2:16.65}))}
+function SvgCopy(){return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('rect',{x:9,y:9,width:13,height:13,rx:2}),h('path',{d:'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'}))}
+function SvgCheck(){return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'3',strokeLinecap:'round'},h('polyline',{points:'20 6 9 17 4 12'}))}
+function SvgDownload(){return h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('path',{d:'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'}),h('polyline',{points:'7 10 12 15 17 10'}),h('line',{x1:12,y1:15,x2:12,y2:3}))}
+function SvgPeople(){return h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('path',{d:'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2'}),h('circle',{cx:9,cy:7,r:4}),h('path',{d:'M23 21v-2a4 4 0 0 0-3-3.87'}),h('path',{d:'M16 3.13a4 4 0 0 1 0 7.75'}))}
+function SvgUser(){return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('path',{d:'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'}),h('circle',{cx:12,cy:7,r:4}))}
+function SvgPDF(){return h('svg',{width:18,height:18,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('path',{d:'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'}),h('polyline',{points:'14 2 14 8 20 8'}),h('line',{x1:16,y1:13,x2:8,y2:13}),h('line',{x1:16,y1:17,x2:8,y2:17}))}
+function SvgCal(){return h('svg',{width:15,height:15,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round'},h('rect',{x:3,y:4,width:18,height:18,rx:2}),h('line',{x1:16,y1:2,x2:16,y2:6}),h('line',{x1:8,y1:2,x2:8,y2:6}),h('line',{x1:3,y1:10,x2:21,y2:10}))}
+
+// ── PMBADGE ──
+function PMBadge({id,size='sm'}){
+  const pm=getPM(id),pad=size==='lg'?'6px 14px':'3px 8px',fs=size==='lg'?'13px':'11px';
+  return h('span',{style:{display:'inline-flex',alignItems:'center',gap:'4px',background:pm.bg,color:pm.color,borderRadius:'20px',padding:pad,fontSize:fs,fontWeight:600,fontFamily:'var(--mono)',whiteSpace:'nowrap',border:`1px solid ${pm.color}33`}},pm.emoji,' ',pm.label)
+}
+
+// ── CHIP ──
+function Chip({label,value,accent}){
+  return h('span',{style:{display:'inline-flex',alignItems:'center',gap:4,background:accent?'rgba(0,214,143,0.12)':'var(--surface2)',border:`1px solid ${accent?'rgba(0,214,143,0.3)':'var(--border)'}`,borderRadius:20,padding:'3px 10px',fontSize:12,color:accent?'var(--accent)':'var(--text)'}},
+    h('span',{style:{color:'var(--text2)',fontSize:10}},label+':'),
+    h('span',{style:{fontWeight:600,fontFamily:'var(--mono)'}},value)
+  )
+}
+
+// ── FIELDINPUT ──
+function FieldInput({label,value,onChange,placeholder,type='text',accent,dir='rtl'}){
+  return h('div',null,
+    h('div',{style:{fontSize:12,color:accent?'var(--accent)':'var(--text2)',fontWeight:600,marginBottom:5}},label),
+    h('input',{type,value,onChange:e=>onChange(e.target.value),placeholder,inputMode:type==='number'?'decimal':type==='tel'?'tel':'text',dir,style:{width:'100%',background:'var(--surface2)',border:`1.5px solid ${accent&&value?'var(--accent)':'var(--border)'}`,borderRadius:'var(--radius-sm)',color:'var(--text)',fontSize:15,padding:'10px 12px',transition:'border-color 0.15s'}})
+  )
+}
+
+// ── ACTIONBTN ──
+function ActionBtn({icon,label,color,onClick}){
+  return h('button',{onClick,style:{flex:1,padding:'12px 8px',background:'var(--surface2)',color,display:'flex',flexDirection:'column',alignItems:'center',gap:4,fontSize:11,fontWeight:600,borderRight:'1px solid var(--border)'}},icon,label)
+}
+
+// ── LOGIN MODAL ──
+function LoginModal({onLogin}){
+  const [name,setName]=useState('');
+  const inputRef=useRef(null);
+  useEffect(()=>{setTimeout(()=>{if(inputRef.current)inputRef.current.focus()},120)},[]);
+  const go=()=>{const t=name.trim();if(!t)return;saveUsername(t);onLogin(t)};
+  return h('div',{style:{position:'fixed',inset:0,zIndex:999,background:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',padding:24,flexDirection:'column'}},
+    h('div',{className:'slide-up',style:{width:'100%',maxWidth:360,background:'var(--surface)',borderRadius:'var(--radius)',padding:'32px 24px',border:'1px solid var(--border)',boxShadow:'0 0 40px rgba(0,214,143,0.1)'}},
+      h('div',{style:{textAlign:'center',marginBottom:28}},
+        h('div',{style:{fontSize:44,marginBottom:12}},'💸'),
+        h('div',{style:{fontSize:20,fontWeight:800,color:'var(--text)',marginBottom:6}},'מערכת ניהול תרומות'),
+        h('div',{style:{fontSize:13,color:'var(--text2)'}},'כדי להתחיל, הזן את שמך (שם הגובה)')
+      ),
+      h('div',{style:{marginBottom:16}},
+        h('div',{style:{fontSize:12,color:'var(--accent)',fontWeight:600,marginBottom:6}},'שם הגובה / המתרים'),
+        h('input',{ref:inputRef,value:name,onChange:e=>setName(e.target.value),onKeyDown:e=>{if(e.key==='Enter')go()},placeholder:'למשל: ישראל ישראלי',style:{width:'100%',background:'var(--surface2)',border:`1.5px solid ${name.trim()?'var(--accent)':'var(--border)'}`,borderRadius:'var(--radius-sm)',color:'var(--text)',fontSize:16,padding:'13px 14px'}})
+      ),
+      h('button',{onClick:go,disabled:!name.trim(),style:{width:'100%',padding:'16px',background:'var(--accent)',color:'#000',borderRadius:'var(--radius)',fontSize:16,fontWeight:800,opacity:name.trim()?1:0.4,display:'flex',alignItems:'center',justifyContent:'center',gap:8}},
+        h(SvgUser,null),' כניסה למערכת'
+      )
+    ),
+    h('div',{style:{marginTop:20,fontSize:10,color:'var(--text2)',opacity:0.5,textAlign:'center'}},'כל הזכויות שמורות לדוב עיצוב ופיתוח (https://dov-portfolio.vercel.app)')
+  )
+}
+
+// ── QUICK SUMMARY MODAL ──
+function QuickSummaryModal({pm,total,count,onClose}){
+  useEffect(()=>{const h2=e=>{if(e.key==='Escape')onClose()};window.addEventListener('keydown',h2);return()=>window.removeEventListener('keydown',h2)},[onClose]);
+  return h('div',{onClick:onClose,className:'fade-in',style:{position:'fixed',inset:0,zIndex:200,background:'rgba(0,0,0,0.72)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:'var(--safe-bottom)'}},
+    h('div',{onClick:e=>e.stopPropagation(),className:'slide-up',style:{width:'100%',maxWidth:'480px',background:'var(--surface)',borderRadius:'24px 24px 0 0',padding:'32px 24px 40px',border:`1px solid ${pm.color}44`,boxShadow:`0 -8px 40px ${pm.color}22`}},
+      h('div',{style:{width:48,height:4,background:'var(--border)',borderRadius:2,margin:'0 auto 28px'}}),
+      h('div',{style:{textAlign:'center'}},
+        h('div',{style:{fontSize:52,marginBottom:12}},pm.emoji),
+        h('div',{style:{fontSize:15,color:'var(--text2)',fontWeight:600,marginBottom:8,letterSpacing:'0.05em',textTransform:'uppercase'}}, 'סך הכל נכנס ב'+pm.label),
+        h('div',{style:{fontSize:56,fontWeight:800,fontFamily:'var(--mono)',color:pm.color,letterSpacing:'-0.02em',textShadow:`0 0 30px ${pm.color}66`,marginBottom:16}},fmt(total)),
+        h('div',{style:{display:'inline-flex',alignItems:'center',gap:8,background:'var(--surface2)',borderRadius:20,padding:'8px 20px',color:'var(--text2)',fontSize:14}},
+          h(SvgPeople,null),h('span',null,count+' תורמ'+(count!==1?'ים':''))
+        )
+      ),
+      h('button',{onClick:onClose,style:{width:'100%',marginTop:32,padding:'16px',background:pm.bg,color:pm.color,borderRadius:'var(--radius)',fontSize:16,fontWeight:700,border:`1px solid ${pm.color}44`}},'סגור')
+    )
+  )
+}
+
+// ── PAYMENT SUMMARY BAR ──
+function PaymentSummaryBar({donations,onSelectPM}){
+  const totals=useMemo(()=>{const t={};PM.forEach(p=>{t[p.id]={total:0,count:0}});donations.forEach(d=>{const id=d.paymentMethod||'other';if(!t[id])t[id]={total:0,count:0};t[id].total+=d.amount||0;t[id].count++});return t},[donations]);
+  return h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,padding:'16px 16px 8px'}},
+    PM.map(pm=>{const{total,count}=totals[pm.id]||{total:0,count:0};
+      return h('button',{key:pm.id,onClick:()=>onSelectPM(pm,total,count),style:{background:count>0?pm.bg:'var(--surface)',border:`1.5px solid ${count>0?pm.color+'55':'var(--border)'}`,borderRadius:'var(--radius)',padding:'12px 8px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,opacity:count>0?1:0.55}},
+        h('span',{style:{fontSize:22}},pm.emoji),
+        h('span',{style:{fontSize:11,color:'var(--text2)',fontWeight:600}},pm.label),
+        h('span',{style:{fontSize:14,fontWeight:800,fontFamily:'var(--mono)',color:count>0?pm.color:'var(--text2)'}},fmt(total))
+      )
+    })
+  )
+}
+</script>
+<script>
+// ── SMART INPUT PANEL ──
+function SmartInputPanel({onAdd}){
+  const [freeText,setFreeText]=useState('');
+  const [parsed,setParsed]=useState(null);
+  const [form,setForm]=useState({name:'',phone:'',email:'',amount:'',paymentMethod:'cash',note:''});
+  const [showForm,setShowForm]=useState(false);
+  const [added,setAdded]=useState(false);
+  const textRef=useRef(null);
+  const fc=(field,val)=>setForm(f=>({...f,[field]:val}));
+  const handleFT=val=>{
+    setFreeText(val);
+    if(val.trim().length>2){const p=smartParse(val);if(p){setParsed(p);setForm({name:p.name||'',phone:p.phone||'',email:p.email||'',amount:p.amount?String(p.amount):'',paymentMethod:p.paymentMethod||'cash',note:p.note||''})}}
+    else setParsed(null)
+  };
+  const handleSubmit=()=>{
+    const name=form.name.trim(),amount=parseFloat(String(form.amount).replace(/,/g,''))||0;
+    if(!name&&!amount)return;
+    onAdd({id:genId(),name:name||'ללא שם',phone:form.phone.trim(),email:form.email.trim(),amount,paymentMethod:form.paymentMethod,note:form.note.trim(),createdAt:new Date().toISOString()});
+    setFreeText('');setParsed(null);setForm({name:'',phone:'',email:'',amount:'',paymentMethod:'cash',note:''});setShowForm(false);setAdded(true);
+    setTimeout(()=>setAdded(false),1500);if(textRef.current)textRef.current.focus()
+  };
+  const clearAll=()=>{setFreeText('');setParsed(null);setForm({name:'',phone:'',email:'',amount:'',paymentMethod:'cash',note:''});setShowForm(false)};
+
+  return h('div',{style:{background:'var(--surface)',borderRadius:'var(--radius)',margin:'12px 16px',border:'1px solid var(--border)',overflow:'hidden'}},
+    h('div',{style:{padding:'14px 14px 10px',position:'relative'}},
+      h('div',{style:{fontSize:11,color:'var(--text2)',fontWeight:600,marginBottom:8,letterSpacing:'0.06em',textTransform:'uppercase'}},'⚡ קלט מהיר — הדבק או הקלד הכל יחד'),
+      h('textarea',{ref:textRef,value:freeText,onChange:e=>handleFT(e.target.value),placeholder:'ישראל ישראלי 0501234567 500 זאל\nאו: John Smith $250 cash\nאו: sara@test.com 180 קאש אפ',rows:3,style:{width:'100%',background:'var(--surface2)',border:`1.5px solid ${parsed?'var(--accent)':'var(--border)'}`,borderRadius:'var(--radius-sm)',color:'var(--text)',fontSize:15,padding:'12px 14px',resize:'none',lineHeight:1.55,direction:'rtl'}}),
+      freeText&&h('button',{onClick:clearAll,style:{position:'absolute',top:38,left:24,background:'var(--border)',borderRadius:'50%',width:26,height:26,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text2)'}},h(SvgClose,null))
+    ),
+    parsed&&(parsed.name||parsed.amount>0)&&h('div',{className:'fade-in',style:{margin:'0 14px 10px',background:'rgba(0,214,143,0.06)',border:'1px solid rgba(0,214,143,0.25)',borderRadius:'var(--radius-sm)',padding:'10px 14px'}},
+      h('div',{style:{fontSize:11,color:'var(--accent)',fontWeight:700,marginBottom:8,letterSpacing:'0.05em'}},'✓ זוהה אוטומטית'),
+      h('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+        form.name&&h(Chip,{label:'שם',value:form.name}),
+        form.amount&&h(Chip,{label:'סכום',value:'$'+form.amount,accent:true}),
+        form.phone&&h(Chip,{label:"טל'",value:form.phone}),
+        form.email&&h(Chip,{label:'אימייל',value:form.email}),
+        h(PMBadge,{id:form.paymentMethod})
+      ),
+      h('button',{onClick:()=>setShowForm(f=>!f),style:{marginTop:10,fontSize:12,color:'var(--text2)',background:'none',padding:0,textDecoration:'underline'}},showForm?'▲ הסתר פרטים':'▼ ערוך פרטים')
+    ),
+    (!parsed||showForm)&&h('div',{style:{padding:'0 14px',display:'flex',flexDirection:'column',gap:10}},
+      !parsed&&h('div',{style:{fontSize:11,color:'var(--text2)',fontWeight:600,letterSpacing:'0.05em',textTransform:'uppercase',paddingTop:4}},'או מלא ידנית:'),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+        h(FieldInput,{label:'שם',value:form.name,onChange:v=>fc('name',v),placeholder:'ישראל ישראלי'}),
+        h(FieldInput,{label:'סכום ($)',value:form.amount,onChange:v=>fc('amount',v),placeholder:'0',type:'number',accent:true})
+      ),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+        h(FieldInput,{label:'טלפון',value:form.phone,onChange:v=>fc('phone',v),placeholder:'050...',type:'tel',dir:'ltr'}),
+        h(FieldInput,{label:'אימייל',value:form.email,onChange:v=>fc('email',v),placeholder:'email@...',type:'email',dir:'ltr'})
+      ),
+      h('div',null,
+        h('div',{style:{fontSize:12,color:'var(--text2)',fontWeight:600,marginBottom:6}},'אמצעי תשלום'),
+        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          PM.map(pm=>h('button',{key:pm.id,onClick:()=>fc('paymentMethod',pm.id),style:{padding:'6px 12px',borderRadius:20,fontSize:12,fontWeight:600,background:form.paymentMethod===pm.id?pm.bg:'var(--surface2)',color:form.paymentMethod===pm.id?pm.color:'var(--text2)',border:`1.5px solid ${form.paymentMethod===pm.id?pm.color+'66':'var(--border)'}`}},pm.emoji+' '+pm.label))
+        )
+      ),
+      h(FieldInput,{label:'הערה (אופציונלי)',value:form.note,onChange:v=>fc('note',v),placeholder:'הערות נוספות...'})
+    ),
+    h('div',{style:{padding:'12px 14px 14px'}},
+      h('button',{onClick:handleSubmit,disabled:!form.name.trim()&&!form.amount,style:{width:'100%',padding:'16px',background:added?'var(--accent2)':'var(--accent)',color:'#000',borderRadius:'var(--radius)',fontSize:16,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',gap:8,opacity:(!form.name.trim()&&!form.amount)?0.4:1}},
+        added?[h(SvgCheck,{key:'c'}),' נוסף בהצלחה!']:[h(SvgPlus,{key:'p'}),' הוסף תרומה']
+      )
+    )
+  )
+}
+
+// ── DONATION CARD ──
+function DonationCard({donation,onDelete,onEdit}){
+  const [showActions,setShowActions]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const pm=getPM(donation.paymentMethod);
+  const copyPhone=()=>{if(!donation.phone)return;navigator.clipboard&&navigator.clipboard.writeText(donation.phone);setCopied(true);setTimeout(()=>setCopied(false),1500)};
+  return h('div',{className:'slide-up',style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius)',marginBottom:10,overflow:'hidden'}},
+    h('div',{style:{padding:'14px 14px 12px',cursor:'pointer'},onClick:()=>setShowActions(f=>!f)},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}},
+        h('div',{style:{flex:1,minWidth:0}},
+          h('div',{style:{fontSize:16,fontWeight:700,marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},donation.name),
+          h('div',{style:{display:'flex',flexWrap:'wrap',gap:5,alignItems:'center'}},
+            h(PMBadge,{id:donation.paymentMethod}),
+            donation.phone&&h('span',{style:{fontSize:11,color:'var(--text2)',fontFamily:'var(--mono)'}},donation.phone)
+          ),
+          donation.createdBy&&h('div',{style:{display:'inline-flex',alignItems:'center',gap:4,marginTop:5,background:'rgba(139,148,158,0.1)',borderRadius:20,padding:'2px 8px',fontSize:10,color:'var(--text2)'}},
+            h(SvgUser,null),h('span',{style:{fontWeight:600}},donation.createdBy)
+          ),
+          donation.note&&h('div',{style:{fontSize:12,color:'var(--text2)',marginTop:4,fontStyle:'italic'}},donation.note),
+          h('div',{style:{fontSize:11,color:'var(--text2)',marginTop:5,opacity:0.6}},fmtDate(donation.createdAt))
+        ),
+        h('div',{style:{fontFamily:'var(--mono)',fontWeight:800,fontSize:donation.amount>=1000?20:24,color:pm.color,textAlign:'left',flexShrink:0,textShadow:`0 0 16px ${pm.color}44`}},fmt(donation.amount))
+      )
+    ),
+    showActions&&h('div',{className:'fade-in',style:{display:'flex',borderTop:'1px solid var(--border)'}},
+      donation.phone&&h(ActionBtn,{icon:copied?h(SvgCheck,null):h(SvgCopy,null),label:copied?'הועתק':'העתק טל',color:copied?'var(--accent)':'var(--text2)',onClick:copyPhone}),
+      h(ActionBtn,{icon:h(SvgEdit,null),label:'ערוך',color:'var(--text2)',onClick:()=>{setShowActions(false);onEdit(donation)}}),
+      h(ActionBtn,{icon:h(SvgTrash,null),label:'מחק',color:'var(--danger)',onClick:()=>onDelete(donation.id)})
+    )
+  )
+}
+
+// ── EDIT MODAL ──
+function EditModal({donation,onSave,onClose}){
+  const [form,setForm]=useState({name:donation.name||'',phone:donation.phone||'',email:donation.email||'',amount:donation.amount?String(donation.amount):'',paymentMethod:donation.paymentMethod||'cash',note:donation.note||''});
+  const handleSave=()=>onSave({...donation,name:form.name.trim()||'ללא שם',phone:form.phone.trim(),email:form.email.trim(),amount:parseFloat(String(form.amount).replace(/,/g,''))||0,paymentMethod:form.paymentMethod,note:form.note.trim(),updatedAt:new Date().toISOString()});
+  return h('div',{onClick:onClose,className:'fade-in',style:{position:'fixed',inset:0,zIndex:200,background:'rgba(0,0,0,0.72)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:'var(--safe-bottom)'}},
+    h('div',{onClick:e=>e.stopPropagation(),className:'slide-up',style:{width:'100%',maxWidth:'480px',background:'var(--surface)',borderRadius:'24px 24px 0 0',padding:'24px 16px 32px',border:'1px solid var(--border)',maxHeight:'90dvh',overflowY:'auto'}},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}},
+        h('span',{style:{fontSize:18,fontWeight:700}},'ערוך תרומה'),
+        h('button',{onClick:onClose,style:{background:'var(--surface2)',borderRadius:'50%',width:36,height:36,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text2)'}},h(SvgClose,null))
+      ),
+      h('div',{style:{display:'flex',flexDirection:'column',gap:12}},
+        h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+          h(FieldInput,{label:'שם',value:form.name,onChange:v=>setForm(f=>({...f,name:v})),placeholder:'ישראל ישראלי'}),
+          h(FieldInput,{label:'סכום ($)',value:form.amount,onChange:v=>setForm(f=>({...f,amount:v})),type:'number',accent:true})
+        ),
+        h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+          h(FieldInput,{label:'טלפון',value:form.phone,onChange:v=>setForm(f=>({...f,phone:v})),type:'tel',dir:'ltr'}),
+          h(FieldInput,{label:'אימייל',value:form.email,onChange:v=>setForm(f=>({...f,email:v})),type:'email',dir:'ltr'})
+        ),
+        h('div',null,
+          h('div',{style:{fontSize:12,color:'var(--text2)',fontWeight:600,marginBottom:6}},'אמצעי תשלום'),
+          h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+            PM.map(pm=>h('button',{key:pm.id,onClick:()=>setForm(f=>({...f,paymentMethod:pm.id})),style:{padding:'7px 13px',borderRadius:20,fontSize:12,fontWeight:600,background:form.paymentMethod===pm.id?pm.bg:'var(--surface2)',color:form.paymentMethod===pm.id?pm.color:'var(--text2)',border:`1.5px solid ${form.paymentMethod===pm.id?pm.color+'66':'var(--border)'}`}},pm.emoji+' '+pm.label))
+          )
+        ),
+        h(FieldInput,{label:'הערה',value:form.note,onChange:v=>setForm(f=>({...f,note:v})),placeholder:'הערות נוספות...'}),
+        h('button',{onClick:handleSave,style:{width:'100%',padding:'16px',background:'var(--accent)',color:'#000',borderRadius:'var(--radius)',fontSize:16,fontWeight:800,marginTop:4}},'שמור שינויים')
+      )
+    )
+  )
+}
+</script>
+<script>
+// ── PERIOD SUMMARY ──
+function PeriodSummary({donations}){
+  const periods=useMemo(()=>{
+    const calc=fn=>{const f=donations.filter(d=>fn(d.createdAt)),total=f.reduce((s,d)=>s+(d.amount||0),0),byPM={};f.forEach(d=>{const id=d.paymentMethod||'other';byPM[id]=(byPM[id]||0)+(d.amount||0)});return{total,count:f.length,byPM}};
+    return{today:calc(isToday),week:calc(isThisWeek),month:calc(isThisMonth),all:calc(()=>true)}
+  },[donations]);
+  const defs=[{key:'today',label:'היום',emoji:'☀️',color:'#F0B429'},{key:'week',label:'השבוע',emoji:'📅',color:'#A855F7'},{key:'month',label:'החודש',emoji:'🗓️',color:'#3D95CE'},{key:'all',label:'סה"כ כולל',emoji:'📊',color:'#00D68F'}];
+  return h('div',{style:{padding:'0 16px',marginBottom:16}},
+    h('div',{style:{fontSize:12,color:'var(--text2)',fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:12,display:'flex',alignItems:'center',gap:6}},h(SvgCal,null),' סיכומים תקופתיים'),
+    defs.map(pd=>{
+      const data=periods[pd.key];
+      if(pd.key!=='all'&&data.count===0)return null;
+      return h('div',{key:pd.key,style:{background:'var(--surface)',border:`1px solid ${pd.color}33`,borderRadius:'var(--radius)',marginBottom:10,overflow:'hidden'}},
+        h('div',{style:{padding:'14px 16px',borderBottom:data.count>0?'1px solid var(--border)':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+            h('span',{style:{fontSize:20}},pd.emoji),
+            h('div',null,
+              h('div',{style:{fontWeight:700,fontSize:14,color:'var(--text)'}},pd.label),
+              h('div',{style:{fontSize:11,color:'var(--text2)',marginTop:1}},data.count+' תרומ'+(data.count!==1?'ות':'ה'))
+            )
+          ),
+          h('div',{style:{fontFamily:'var(--mono)',fontWeight:800,fontSize:22,color:pd.color,textShadow:`0 0 14px ${pd.color}44`}},fmt(data.total))
+        ),
+        data.count>0&&h('div',{style:{padding:'10px 16px',display:'flex',flexWrap:'wrap',gap:6}},
+          PM.map(pm=>{const val=data.byPM[pm.id]||0;if(!val)return null;return h('div',{key:pm.id,style:{display:'inline-flex',alignItems:'center',gap:5,background:pm.bg,border:`1px solid ${pm.color}33`,borderRadius:20,padding:'4px 10px',fontSize:11}},h('span',null,pm.emoji),h('span',{style:{color:pm.color,fontWeight:700,fontFamily:'var(--mono)'}},fmt(val)))})
+        )
+      )
+    })
+  )
+}
+
+// ── DONORS SUMMARY ──
+function DonorsSummary({donations}){
+  const byDonor=useMemo(()=>{const map={};donations.forEach(d=>{const k=d.name||'ללא שם';if(!map[k])map[k]={name:k,total:0,count:0};map[k].total+=d.amount||0;map[k].count++});return Object.values(map).sort((a,b)=>b.total-a.total)},[donations]);
+  if(!byDonor.length)return null;
+  return h('div',{style:{padding:'0 16px',marginBottom:16}},
+    h('div',{style:{fontSize:12,color:'var(--text2)',fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:10}},'סיכום לפי תורם'),
+    byDonor.map(d=>h('div',{key:d.name,style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 14px',background:'var(--surface)',borderRadius:'var(--radius-sm)',marginBottom:6,border:'1px solid var(--border)'}},
+      h('div',null,h('div',{style:{fontWeight:600,fontSize:14}},d.name),h('div',{style:{fontSize:11,color:'var(--text2)',marginTop:2}},d.count+' תרומ'+(d.count!==1?'ות':'ה'))),
+      h('div',{style:{fontFamily:'var(--mono)',fontWeight:800,fontSize:18,color:'var(--accent)'}},fmt(d.total))
+    ))
+  )
+}
+
+// ── EXPORT ──
+function exportCSV(donations){
+  const hdr='שם,טלפון,אימייל,סכום,אמצעי תשלום,הערה,הוכנס על ידי,תאריך';
+  const rows=donations.map(d=>[d.name,d.phone,d.email,d.amount,getPM(d.paymentMethod).labelEn,d.note,d.createdBy||'',fmtDate(d.createdAt)].map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(','));
+  const csv=[hdr,...rows].join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='תרומות_'+new Date().toLocaleDateString('he-IL').replace(/\//g,'-')+'.csv';a.click();URL.revokeObjectURL(url)
+}
+function exportPDF(donations){
+  const now=new Date(),dateStr=now.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const gt=donations.reduce((s,d)=>s+(d.amount||0),0);
+  const td=donations.filter(d=>isToday(d.createdAt)),wk=donations.filter(d=>isThisWeek(d.createdAt)),mn=donations.filter(d=>isThisMonth(d.createdAt));
+  const fmtN=n=>'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2});
+  const pmB=PM.filter(pm=>{const t=donations.reduce((s,d)=>s+(d.paymentMethod===pm.id?d.amount||0:0),0);return t>0}).map(pm=>{const t=donations.reduce((s,d)=>s+(d.paymentMethod===pm.id?d.amount||0:0),0);return`<td style="padding:6px 8px;border:1px solid #ddd;">${pm.labelEn}</td><td style="padding:6px 8px;border:1px solid #ddd;font-weight:700;">${fmtN(t)}</td>`}).join('');
+  const rows=donations.map((d,i)=>`<tr style="${i%2===1?'background:#fafafa;':''}"><td style="padding:6px 8px;border:1px solid #ddd;">${d.name||''}</td><td style="padding:6px 8px;border:1px solid #ddd;">${fmtN(d.amount||0)}</td><td style="padding:6px 8px;border:1px solid #ddd;">${getPM(d.paymentMethod).labelEn}</td><td style="padding:6px 8px;border:1px solid #ddd;">${d.phone||''}</td><td style="padding:6px 8px;border:1px solid #ddd;">${d.createdBy||''}</td><td style="padding:6px 8px;border:1px solid #ddd;">${fmtDate(d.createdAt)}</td><td style="padding:6px 8px;border:1px solid #ddd;">${d.note||''}</td></tr>`).join('');
+  const html=`<div class="ph"><h1>דוח תרומות</h1><p>הופק: ${dateStr}</p></div><div class="ps"><div class="pb"><div class="lb">סה"כ כולל</div><div class="vl" style="color:#007a52;">${fmtN(gt)}</div><div style="font-size:11px;">${donations.length} תרומות</div></div><div class="pb"><div class="lb">היום</div><div class="vl">${fmtN(td.reduce((s,d)=>s+(d.amount||0),0))}</div><div style="font-size:11px;">${td.length} תרומות</div></div><div class="pb"><div class="lb">השבוע</div><div class="vl">${fmtN(wk.reduce((s,d)=>s+(d.amount||0),0))}</div><div style="font-size:11px;">${wk.length} תרומות</div></div><div class="pb"><div class="lb">החודש</div><div class="vl">${fmtN(mn.reduce((s,d)=>s+(d.amount||0),0))}</div><div style="font-size:11px;">${mn.length} תרומות</div></div></div><div class="pt">פילוח לפי אמצעי תשלום</div><table><tbody><tr>${pmB}</tr></tbody></table><div class="pt">רשימת תרומות (${donations.length})</div><table><thead><tr><th>שם</th><th>סכום</th><th>אמצעי תשלום</th><th>טלפון</th><th>הוכנס ע"י</th><th>תאריך</th><th>הערה</th></tr></thead><tbody>${rows}</tbody></table><div class="pf">כל הזכויות שמורות לדוב עיצוב ופיתוח (https://dov-portfolio.vercel.app)</div>`;
+  document.getElementById('print-area').innerHTML=html;window.print();setTimeout(()=>{document.getElementById('print-area').innerHTML=''},1500)
+}
+
+// ── HEADER ──
+function Header({total,count,onExportCSV,onExportPDF,username,onChangeUser}){
+  const [pop,setPop]=useState(false),[showMenu,setShowMenu]=useState(false);
+  const prev=useRef(total);
+  useEffect(()=>{if(total!==prev.current){setPop(true);setTimeout(()=>setPop(false),350);prev.current=total}},[total]);
+  return h('div',{style:{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'14px 16px 12px',position:'sticky',top:0,zIndex:100}},
+    h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
+      h('div',null,
+        h('div',{style:{fontSize:11,color:'var(--text2)',fontWeight:600,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:2}},'סך הכל תרומות'),
+        h('div',{style:{fontFamily:'var(--mono)',fontWeight:800,fontSize:34,color:'var(--accent)',letterSpacing:'-0.02em',animation:pop?'number-pop 0.3s ease':'none',textShadow:'0 0 20px rgba(0,214,143,0.4)'}},fmt(total)),
+        h('div',{style:{fontSize:12,color:'var(--text2)',marginTop:2,display:'flex',alignItems:'center',gap:6}},
+          h('span',null,count+' תורמ'+(count!==1?'ים':'')+' · '+new Date().toLocaleDateString('he-IL')),
+          username&&h('button',{onClick:onChangeUser,style:{display:'inline-flex',alignItems:'center',gap:3,background:'rgba(0,214,143,0.1)',border:'1px solid rgba(0,214,143,0.25)',borderRadius:20,padding:'2px 8px',fontSize:10,color:'var(--accent)',fontWeight:700}},h(SvgUser,null),' ',username)
+        )
+      ),
+      h('div',{style:{position:'relative'}},
+        h('button',{onClick:()=>setShowMenu(f=>!f),style:{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',padding:'10px 14px',color:'var(--text2)',display:'flex',alignItems:'center',gap:6,fontSize:13}},h(SvgDownload,null),' ייצוא'),
+        showMenu&&h('div',{className:'fade-in',style:{position:'absolute',left:0,top:'calc(100% + 6px)',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',minWidth:140,zIndex:300,overflow:'hidden',boxShadow:'0 8px 24px rgba(0,0,0,0.4)'}},
+          h('button',{onClick:()=>{onExportCSV();setShowMenu(false)},style:{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'12px 14px',color:'var(--text)',background:'none',fontSize:13,fontWeight:600,borderBottom:'1px solid var(--border)'}},h(SvgDownload,null),' ייצוא CSV'),
+          h('button',{onClick:()=>{onExportPDF();setShowMenu(false)},style:{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'12px 14px',color:'var(--text)',background:'none',fontSize:13,fontWeight:600}},h(SvgPDF,null),' ייצוא PDF')
+        )
+      )
+    )
+  )
+}
+
+// ── APP ──
+function App(){
+  const [donations,setDonations]=useState(loadDonations);
+  const [username,setUsername]=useState(loadUsername);
+  const [showLogin,setShowLogin]=useState(false);
+  const [tab,setTab]=useState('add');
+  const [search,setSearch]=useState('');
+  const [editItem,setEditItem]=useState(null);
+  const [modal,setModal]=useState(null);
+  useEffect(()=>{if(!loadUsername())setShowLogin(true)},[]);
+  useEffect(()=>{saveDonations(donations)},[donations]);
+  const handleLogin=name=>{setUsername(name);setShowLogin(false)};
+  const addDonation=useCallback(d=>{setDonations(prev=>[{...d,createdBy:username||'לא ידוע'},...prev])},[username]);
+  const deleteDonation=useCallback(id=>{if(window.confirm('למחוק את התרומה?'))setDonations(prev=>prev.filter(d=>d.id!==id))},[]);
+  const updateDonation=useCallback(u=>{setDonations(prev=>prev.map(d=>d.id===u.id?u:d));setEditItem(null)},[]);
+  const total=useMemo(()=>donations.reduce((s,d)=>s+(d.amount||0),0),[donations]);
+  const filtered=useMemo(()=>{if(!search.trim())return donations;const q=search.toLowerCase();return donations.filter(d=>(d.name||'').toLowerCase().includes(q)||(d.phone||'').includes(q)||(d.email||'').toLowerCase().includes(q)||String(d.amount||'').includes(q)||(d.createdBy||'').toLowerCase().includes(q))},[donations,search]);
+
+  if(showLogin)return h(LoginModal,{onLogin:handleLogin});
+
+  const tabs=[{id:'add',label:'הוסף תרומה'},{id:'list',label:'רשימה'},{id:'summary',label:'סיכום'}];
+
+  return h('div',{style:{display:'flex',flexDirection:'column',height:'100dvh',overflow:'hidden'}},
+    h(Header,{total,count:donations.length,onExportCSV:()=>exportCSV(donations),onExportPDF:()=>exportPDF(donations),username,onChangeUser:()=>setShowLogin(true)}),
+    h(PaymentSummaryBar,{donations,onSelectPM:(pm,t,c)=>setModal({pm,total:t,count:c})}),
+    h('div',{style:{display:'flex',gap:0,padding:'10px 16px 0',borderBottom:'1px solid var(--border)'}},
+      tabs.map(t=>h('button',{key:t.id,onClick:()=>setTab(t.id),style:{flex:1,padding:'10px 4px',fontSize:13,fontWeight:700,background:'none',color:tab===t.id?'var(--accent)':'var(--text2)',borderBottom:`2.5px solid ${tab===t.id?'var(--accent)':'transparent'}`}},t.label))
+    ),
+    h('div',{style:{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch'}},
+      tab==='add'&&h(SmartInputPanel,{onAdd:d=>{addDonation(d);setTab('list')}}),
+      tab==='list'&&h('div',null,
+        h('div',{style:{padding:'12px 16px 4px',position:'relative'}},
+          h('div',{style:{position:'absolute',top:'50%',right:30,transform:'translateY(-50%)',color:'var(--text2)',pointerEvents:'none',marginTop:6}},h(SvgSearch,null)),
+          h('input',{value:search,onChange:e=>setSearch(e.target.value),placeholder:'חיפוש לפי שם, טלפון, אימייל...',style:{width:'100%',background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:'var(--radius-sm)',color:'var(--text)',fontSize:14,padding:'11px 44px 11px 14px'}})
+        ),
+        h('div',{style:{padding:'8px 16px 80px'}},
+          filtered.length===0
+            ?h('div',{style:{textAlign:'center',padding:'60px 20px',color:'var(--text2)',fontSize:15}},search?'לא נמצאו תוצאות':h('div',null,h('div',{style:{fontSize:40,marginBottom:12}},'💸'),h('div',{style:{fontWeight:600,marginBottom:6}},'אין תרומות עדיין'),h('div',{style:{fontSize:13}},'לחץ על "הוסף תרומה" כדי להתחיל')))
+            :filtered.map(d=>h(DonationCard,{key:d.id,donation:d,onDelete:deleteDonation,onEdit:setEditItem}))
+        )
+      ),
+      tab==='summary'&&h('div',{style:{paddingTop:16,paddingBottom:80}},h(PeriodSummary,{donations}),h(DonorsSummary,{donations}))
+    ),
+    modal&&h(QuickSummaryModal,{pm:modal.pm,total:modal.total,count:modal.count,onClose:()=>setModal(null)}),
+    editItem&&h(EditModal,{donation:editItem,onSave:updateDonation,onClose:()=>setEditItem(null)}),
+    h('div',{style:{textAlign:'center',fontSize:10,color:'var(--text2)',padding:'8px 16px',paddingBottom:'calc(8px + var(--safe-bottom))',borderTop:'1px solid var(--border)',opacity:0.6}},
+      'כל הזכויות שמורות לדוב עיצוב ופיתוח (https://dov-portfolio.vercel.app)'
+    )
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(App,null));
+</script>
+</body>
+</html>
