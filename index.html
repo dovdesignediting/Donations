@@ -448,8 +448,40 @@ function App(){
   const [search,setSearch]=useState('');
   const [editItem,setEditItem]=useState(null);
   const [modal,setModal]=useState(null);
-  useEffect(()=>{if(!loadUsername())setShowLogin(true)},[]);
-  useEffect(()=>{saveDonations(donations)},[donations]);
+    const DB_URL = 'https://donations-adc05-default-rtdb.firebaseio.com/donations.json';
+  const [isSynced, setIsSynced] = useState(false);
+
+  // 1. משיכת נתונים מ-Firebase בזמן טעינת האפליקציה (סינכרון ראשוני)
+  useEffect(() => {
+    if (!loadUsername()) setShowLogin(true);
+
+    fetch(DB_URL)
+      .then(res => res.json())
+      .then(data => {
+        if (data) {
+          // המרה למערך נקי במקרה שהמבנה משתנה
+          const list = Array.isArray(data) ? data : Object.values(data);
+          setDonations(list.filter(Boolean));
+        }
+        setIsSynced(true);
+      })
+      .catch(err => {
+        console.error("שגיאה בסינכרון מול Firebase:", err);
+        setIsSynced(true); // מאפשר המשך עבודה מקומית גם במקרה שאין קליטה
+      });
+  }, []);
+
+  // 2. שמירה אוטומטית ל-Firebase ולמכשיר בכל פעם שהרשימה משתנה
+  useEffect(() => {
+    if (isSynced) {
+      saveDonations(donations); // גיבוי מקומי בטלפון
+      fetch(DB_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(donations)
+      }).catch(err => console.error("שגיאה בשמירה ל-Firebase:", err));
+    }
+  }, [donations, isSynced]);
   const handleLogin=name=>{setUsername(name);setShowLogin(false)};
   const addDonation=useCallback(d=>{setDonations(prev=>[{...d,createdBy:username||'לא ידוע'},...prev])},[username]);
   const deleteDonation=useCallback(id=>{if(window.confirm('למחוק את התרומה?'))setDonations(prev=>prev.filter(d=>d.id!==id))},[]);
